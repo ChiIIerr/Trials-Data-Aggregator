@@ -5,6 +5,21 @@ import sqlite3
 import json
 from collections import deque
 
+# Database path
+DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
+
+# API key
+api_key = input("Enter your API key: ")
+
+# Number of concurrent API calls
+concurrent_calls = 40
+
+# Semaphore for controlling concurrent API calls
+semaphore = asyncio.Semaphore(concurrent_calls)
+
+# Retry pool for failed activities
+retry_pool = []
+
 async def call_api(api_key, activity_id, semaphore, retry_pool):
     headers = {
         'X-API-Key': api_key
@@ -89,15 +104,10 @@ async def retry_activities(api_key, retry_pool, semaphore, conn):
         await asyncio.gather(*tasks)
 
 async def main():
-    api_key = input("Enter your API key: ")
-    activity_id = int(input("Enter the first activity ID: "))
-    concurrent_calls = 40  # Adjust the number of concurrent API calls
-    semaphore = asyncio.Semaphore(concurrent_calls)
-
-    conn = sqlite3.connect('F:/New folder/New folder/db.sqlite')
+    conn = sqlite3.connect(DATABASE_PATH)
     create_tables(conn)
 
-    retry_pool = []
+    activity_id = int(input("Enter the first activity ID: "))  # Move the variable assignment here
 
     asyncio.create_task(retry_activities(api_key, retry_pool, semaphore, conn))
 
