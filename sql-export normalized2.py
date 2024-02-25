@@ -1,9 +1,7 @@
 import asyncio
 import aiohttp
-import time
 import sqlite3
 import json
-from collections import deque
 
 # Database path
 DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
