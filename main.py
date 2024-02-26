@@ -1,7 +1,7 @@
 import asyncio
 import aiohttp
 import sqlite3
-import json
+import time
 
 # Database path
 DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
@@ -10,7 +10,7 @@ DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
 api_key = input("Enter your API key: ")
 
 # Number of concurrent API calls
-concurrent_calls = 40
+concurrent_calls = 50
 
 # Semaphore for controlling concurrent API calls
 semaphore = asyncio.Semaphore(concurrent_calls)
@@ -25,10 +25,19 @@ async def call_api(api_key, activity_id, semaphore, retry_pool):
     url = f'https://www.bungie.net/Platform/Destiny2/Stats/PostGameCarnageReport/{activity_id}/'
     async with semaphore:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
+            while True:
+                try:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        else:
+                            retry_pool.append(activity_id)
+                            return None
+                except aiohttp.ClientConnectionError:
+                    print(f"Server disconnected. Retrying in 5 seconds...")
+                    time.sleep(5)
+                except asyncio.TimeoutError:
+                    print(f"Timeout error occurred for activity: {activity_id}")
                     retry_pool.append(activity_id)
                     return None
 
@@ -45,7 +54,6 @@ def create_schema(conn):
                      (activity_id INTEGER PRIMARY KEY UNIQUE NOT NULL,
                       period TEXT NOT NULL,
                       mode INTEGER NOT NULL,
-                      platform INTEGER NOT NULL,
                       director_activity_hash INTEGER NOT NULL,
                       reference_id INTEGER NOT NULL)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS character
@@ -102,28 +110,31 @@ def create_schema(conn):
 def insert_data(conn, activity_id, json_data):
     activity_details = json_data['Response']['activityDetails']
     period = json_data['Response']['period']
-    mode = activity_details.get('mode')
-    director_activity_hash = activity_details.get('directorActivityHash')
-    reference_id = activity_details.get('referenceId')
+    mode = activity_details['mode']
+    director_activity_hash = activity_details['directorActivityHash']
+    reference_id = activity_details['referenceId']
    
-    conn.execute("INSERT OR IGNORE INTO activity (activity_id, period, mode, director_activity_hash, reference_id) VALUES (?, ?, ?, ?, ?)", (activity_id, period, mode, director_activity_hash, reference_id))
+    # Check if activity_id already exists in activity table
+    cursor = conn.execute("SELECT activity_id FROM activity WHERE activity_id = ?", (activity_id,))
+    if cursor.fetchone() is not None:
+        print(f"Activity with ID {activity_id} already exists in the activity table.")
+        return
+
+    conn.execute("INSERT INTO activity (activity_id, period, mode, director_activity_hash, reference_id) VALUES (?, ?, ?, ?, ?)", (activity_id, period, mode, director_activity_hash, reference_id))
+    conn.commit()
 
     for entry in json_data['Response']['entries']:
         player = entry['player']
-        member_id = player['destinyUserInfo']['membershipId']
-        display_name = player['destinyUserInfo']['displayName']
         
         # Insert character activity stats into the table
         character = entry['characterId']
-        precision_kills = entry['extended']['values']['precisionKills']['basic']['value']
         weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value']
         kills = entry['values']['kills']['basic']['value']
         deaths = entry['values']['deaths']['basic']['value']
         opponents_defeated = entry['values']['opponentsDefeated']['basic']['value']
         time_played_seconds = entry['values']['timePlayedSeconds']['basic']['value']
         
-        conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, precision_kills, weapon_kills_super) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, precision_kills, weapon_kills_super))
-        
+        conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, weapon_kills_super) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, weapon_kills_super))
         
     conn.commit()   
     
@@ -152,8 +163,6 @@ async def main():
             tasks.append(process_activity(api_key, activity_id, semaphore, conn, retry_pool))
             activity_id += 1
         await asyncio.gather(*tasks)
-
-    conn.close()
 
 if __name__ == '__main__':
     asyncio.run(main())
