@@ -142,42 +142,29 @@ def insert_data(conn, activity_id, json_data):
     conn.commit()
 
     for entry in json_data['Response']['entries']:
-        
         # Insert character activity stats into the table
-        for character in entry['characterId']:
-            character = entry['characterId']
-            light_level = entry['player']['lightLevel'] 
-            membership_id = entry['player'].get('membershipId', '')  # Use get() method with a default value
-            weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value']
-            kills = entry['values']['kills']['basic']['value']
-            deaths = entry['values']['deaths']['basic']['value']
-            opponents_defeated = entry['values']['opponentsDefeated']['basic']['value']
-            platform = entry['player'].get('membershipType', '')  # Use get() method with a default value
-            time_played_seconds = entry['values']['timePlayedSeconds']['basic']['value']
-            
-            conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, weapon_kills_super, platform, light_level, membership_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, weapon_kills_super, platform, light_level, membership_id))
+        character = entry['characterId']
+        light_level = entry['player']['lightLevel'] 
+        membership_id = entry['player'].get('membershipId', '')  # Use get() method with a default value
+        weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value']
+        kills = entry['values']['kills']['basic']['value']
+        deaths = entry['values']['deaths']['basic']['value']
+        opponents_defeated = entry['values']['opponentsDefeated']['basic']['value']
+        platform = entry['player'].get('membershipType', '')  # Use get() method with a default value
+        time_played_seconds = entry['values']['timePlayedSeconds']['basic']['value']
+        
+        conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, weapon_kills_super, platform, light_level, membership_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, weapon_kills_super, platform, light_level, membership_id))
+        conn.commit() 
 
-    conn.commit()
+        # Check if 'weapons' field exists
+        if 'weapons' in entry['extended']:
+            for weapons in entry['extended']['weapons']:
+                weapon_reference_id = weapons['referenceId']
+                kills = weapons['values']['uniqueWeaponKills']['basic']['displayValue']
+                precision_kills = weapons['values'].get('uniqueWeaponPrecisionKills', {}).get('basic', {}).get('value', 0)
+                conn.execute("INSERT INTO weapons (weapon_reference_id, kills, precision_kills, activity_id, character) VALUES (?, ?, ?, ?, ?)", (weapon_reference_id, kills, precision_kills, activity_id, character)) 
+                conn.commit()
 
-
-    conn.commit()   
-
-    for entry in json_data['Response']['entries']:
-        for character in entry['characterId']:
-            character = entry['characterId']
-            # Check if 'weapons' field exists
-            if 'weapons' in entry['extended']:
-                # Insert weapon stats into the table
-                for weapon in entry['extended']['weapons']:
-                    weapon_reference_id = weapon['referenceId']
-                    kills = weapon['values']['uniqueWeaponKills']['basic']['displayValue']
-                    precision_kills = weapon['values'].get('uniqueWeaponPrecisionKills', {}).get('basic', {}).get('value', 0)
-                    conn.execute("INSERT INTO weapons (weapon_reference_id, kills, precision_kills, activity_id, character) VALUES (?, ?, ?, ?, ?)", (weapon_reference_id, kills, precision_kills, activity_id, character)) 
-
-    conn.commit()
-
-
-    conn.commit()   
 
 async def main():
     conn = sqlite3.connect(DATABASE_PATH)
