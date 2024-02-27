@@ -27,16 +27,13 @@ async def call_api(api_key, activity_id, semaphore):
                 try:
                     async with session.get(url, headers=headers) as response:
                         if response.status == 200:
-                            if 'ThrottleSeconds' in response.headers and int(response.headers['ThrottleSeconds']) > 0:
-                                print(f"ThrottleSeconds is greater than 0 for activity: {activity_id}")
-                            else:
-                                continue
                             return await response.json()
                         else:
                             print(f"API call failed for activity: {activity_id}. Retrying in 10 seconds...")
                             await asyncio.sleep(10)
                             continue
                             # Check if the response header has a cache hit
+                            cache_status = response.headers.get('cf-cache-status')
                             if cache_status and 'public' in cache_status:
                                 print(f"Cache hit for activity: {activity_id}")
                 except aiohttp.ClientConnectionError:
@@ -52,9 +49,18 @@ async def process_activity(api_key, activity_id, semaphore, conn):
         activity_details = json_data['Response']['activityDetails']
         if activity_details['mode'] == 84:
             print(f"Found activity with mode 84: {activity_id}")
-            insert_data(conn, activity_id, json_data)
-        # else:
-        # print(f"Not trials, but ID is {activity_id}")
+            if not is_activity_id_exists(conn, activity_id):
+                insert_data(conn, activity_id, json_data)
+            else:
+                print(f"Activity ID {activity_id} already exists in the database.")
+        else:
+            print(f"Not trials, but ID is {activity_id}")
+
+def is_activity_id_exists(conn, activity_id):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM activity WHERE activity_id = ?", (activity_id,))
+    count = cursor.fetchone()[0]
+    return count > 0
 
 def create_schema(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS activity
@@ -104,16 +110,15 @@ def create_schema(conn):
                       standing INTEGER NOT NULL,
                       UNIQUE(team_id, activity),
                       FOREIGN KEY (activity) REFERENCES activity (activity_id) ON DELETE CASCADE)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS weapons
+    conn.execute('''CREATE TABLE IF NOT EXISTS weapon_result
                      (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-                      activity INTEGER NOT NULL,
-                      FOREIGN KEY (activity) REFERENCES activity (activity_id) ON DELETE CASCADE),
-                      weapon_reference_id INTEGER NOT NULL,
+                      reference_id INTEGER NOT NULL,
                       kills INTEGER NOT NULL,
                       precision_kills INTEGER NOT NULL,
                       kills_precision_kills_ratio REAL NOT NULL,
-                      character INTEGER NOT NULL,
-                      FOREIGN KEY (character) REFERENCES character_activity_stats (character) ON DELETE CASCADE)''')
+                      character_activity_stats INTEGER NOT NULL,
+                      UNIQUE(character_activity_stats, reference_id),
+                      FOREIGN KEY (character_activity_stats) REFERENCES character_activity_stats (id) ON DELETE CASCADE)''')
 
 def insert_data(conn, activity_id, json_data):
     activity_details = json_data['Response']['activityDetails']
@@ -133,35 +138,18 @@ def insert_data(conn, activity_id, json_data):
 
     for entry in json_data['Response']['entries']:
         player = entry['player']
-
+        
         # Insert character activity stats into the table
         character = entry['characterId']
-        weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value'] if 'extended' in entry else None
+        weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value']
         kills = entry['values']['kills']['basic']['value']
         deaths = entry['values']['deaths']['basic']['value']
         opponents_defeated = entry['values']['opponentsDefeated']['basic']['value']
         time_played_seconds = entry['values']['timePlayedSeconds']['basic']['value']
-
+        
         conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, weapon_kills_super) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, weapon_kills_super))
         
-    conn.commit()  
-
-    for entry in json_data['Response']['entries']:
-        player = entry['player']
-
-        # Insert character activity stats into the table
-        character = entry['characterId']
-        weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value'] if 'extended' in entry else None
-        kills = entry['values']['kills']['basic']['value']
-        deaths = entry['values']['deaths']['basic']['value']
-        opponents_defeated = entry['values']['opponentsDefeated']['basic']['value']
-        time_played_seconds = entry['values']['timePlayedSeconds']['basic']['value']
-
-        conn.execute("INSERT INTO character_activity_stats (activity, character, score, kills, deaths, completed, opponents_defeated, standing, team, time_played_seconds, team_score, weapon_kills_super) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (activity_id, character, 0, kills, deaths, 0, opponents_defeated, 0, 0, time_played_seconds, 0, weapon_kills_super))
-        
-    conn.commit()  
-    
-     
+    conn.commit()   
 
 async def main():
     conn = sqlite3.connect(DATABASE_PATH)
