@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 import sqlite3
 import time
+import weapon_api_call
 
 # Database path
 DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
@@ -14,6 +15,11 @@ concurrent_calls = 50
 
 # Semaphore for controlling concurrent API calls
 semaphore = asyncio.Semaphore(concurrent_calls)
+
+
+# weapon_api_call.call_api(weapon_id, semaphore)
+weapon_refrence_ids = []
+
 
 async def call_api(api_key, activity_id, semaphore):
     headers = {
@@ -47,10 +53,20 @@ async def process_activity(api_key, activity_id, semaphore, conn):
     json_data = await call_api(api_key, activity_id, semaphore)
     if json_data is not None:
         activity_details = json_data['Response']['activityDetails']
-        if activity_details['mode'] == 84:
+        # Activity data
+        if activity_details['mode'] == 84: # trials
             print(f"Found activity with mode 84: {activity_id}")
             if not is_activity_id_exists(conn, activity_id):
-                insert_data(conn, activity_id, json_data)
+                weapon_refrence_ids.clear()
+                insert_activity_data(conn, activity_id, json_data)
+                # Weapon_manifest data
+                for weapon_reference_id in weapon_refrence_ids:
+                    if not weapon_api_call.is_weapon_reference_id_exists(conn, weapon_reference_id):
+                        weapon_data = await weapon_api_call.call_api(api_key, weapon_reference_id, semaphore)
+                        if weapon_data is not None:
+                            weapon_api_call.insert_weapon_data(conn, weapon_reference_id, weapon_data)
+                    else:
+                        print(f"Weapon ID {weapon_reference_id} already exists in the manifest.")
             else:
                 print(f"Activity ID {activity_id} already exists in the database.")
         else:
@@ -122,10 +138,14 @@ def create_schema(conn):
                       kills_precision_kills_ratio REAL,
                       character INTEGER,
                       activity_id INTEGER NOT NULL,
+                      FOREIGN KEY (weapon_reference_id) REFERENCES weapons_manifest (weapon_reference_id) ON DELETE CASCADE,
                       FOREIGN KEY (character) REFERENCES character_activity_stats (character) ON DELETE CASCADE,
                       FOREIGN KEY (activity_id) REFERENCES activity (activity_id) ON DELETE CASCADE)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS weapons_manifest
+                      (weapon_reference_id INTEGER PRIMARY KEY UNIQUE NOT NULL,
+                      ammo_type INTEGER)''')
 
-def insert_data(conn, activity_id, json_data):
+def insert_activity_data(conn, activity_id, json_data):
     activity_details = json_data['Response']['activityDetails']
     period = json_data['Response']['period']
     mode = activity_details['mode']
@@ -164,6 +184,7 @@ def insert_data(conn, activity_id, json_data):
                 precision_kills = weapons['values'].get('uniqueWeaponPrecisionKills', {}).get('basic', {}).get('value', 0)
                 conn.execute("INSERT INTO weapons (weapon_reference_id, kills, precision_kills, activity_id, character) VALUES (?, ?, ?, ?, ?)", (weapon_reference_id, kills, precision_kills, activity_id, character)) 
                 conn.commit()
+                weapon_refrence_ids.append(weapon_reference_id)
 
 
 async def main():
