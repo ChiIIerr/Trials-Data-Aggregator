@@ -11,7 +11,7 @@ DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
 api_key = input("Enter your API key: ")
 
 # Number of concurrent API calls
-concurrent_calls = 200
+concurrent_calls = 50
 
 # Semaphore for controlling concurrent API calls
 semaphore = asyncio.Semaphore(concurrent_calls)
@@ -33,15 +33,14 @@ async def call_api(api_key, activity_id, semaphore):
                 try:
                     async with session.get(url, headers=headers) as response:
                         if response.status == 200:
-                            return await response.json()
+                            json_data = await response.json()
+                            if 'ThrottleSeconds' in json_data and json_data['ThrottleSeconds'] > 0:
+                                print("Being throttled")
+                            return json_data
                         else:
                             print(f"API call failed for activity: {activity_id}. Retrying in 10 seconds...")
                             await asyncio.sleep(10)
                             continue
-                            # Check if the response header has a cache hit
-                            cache_status = response.headers.get('cf-cache-status')
-                            if cache_status and 'public' in cache_status:
-                                print(f"Cache hit for activity: {activity_id}")
                 except aiohttp.ClientConnectionError:
                     print(f"Server disconnected. Retrying in 5 seconds...")
                     time.sleep(5)
@@ -145,6 +144,11 @@ def create_schema(conn):
                       (weapon_reference_id INTEGER PRIMARY KEY UNIQUE NOT NULL,
                       weapon_type INTEGER,
                       ammo_type INTEGER)''')
+    cursor = conn.execute("PRAGMA table_info(weapons_manifest)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'weapon_type' not in columns:
+        conn.execute('''ALTER TABLE weapons_manifest
+                        ADD COLUMN weapon_type INTEGER''')
 
 def insert_activity_data(conn, activity_id, json_data):
     activity_details = json_data['Response']['activityDetails']
