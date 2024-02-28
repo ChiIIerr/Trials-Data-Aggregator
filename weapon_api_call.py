@@ -34,9 +34,10 @@ def insert_weapon_data(conn, weapon_reference_id, weapon_data):
     print(f"Inserting weapon ID {weapon_reference_id} into the manifest.")
     weapon_json = weapon_data.get('Response', {})
     ammo_type = weapon_json['equippingBlock']['ammoType']
+    weapon_type = weapon_json['itemSubType']
     cursor = conn.cursor()
     try:
-        cursor.execute('INSERT INTO weapons_manifest (weapon_reference_id, ammo_type) VALUES (?, ?)', (weapon_reference_id, ammo_type))
+        cursor.execute('INSERT INTO weapons_manifest (weapon_reference_id, ammo_type, weapon_type) VALUES (?, ?)', (weapon_reference_id, ammo_type, weapon_type))
     except sqlite3.IntegrityError:
         print(f"weapon_reference_id {weapon_reference_id} already exists in the database.")
         return None

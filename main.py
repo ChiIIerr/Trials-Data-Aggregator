@@ -11,7 +11,7 @@ DATABASE_PATH = 'F:/New folder/New folder/db.sqlite'
 api_key = input("Enter your API key: ")
 
 # Number of concurrent API calls
-concurrent_calls = 50
+concurrent_calls = 200
 
 # Semaphore for controlling concurrent API calls
 semaphore = asyncio.Semaphore(concurrent_calls)
@@ -143,6 +143,7 @@ def create_schema(conn):
                       FOREIGN KEY (activity_id) REFERENCES activity (activity_id) ON DELETE CASCADE)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS weapons_manifest
                       (weapon_reference_id INTEGER PRIMARY KEY UNIQUE NOT NULL,
+                      weapon_type INTEGER,
                       ammo_type INTEGER)''')
 
 def insert_activity_data(conn, activity_id, json_data):
@@ -165,7 +166,7 @@ def insert_activity_data(conn, activity_id, json_data):
         # Insert character activity stats into the table
         character = entry['characterId']
         light_level = entry['player']['lightLevel'] 
-        membership_id = entry['player'].get('membershipId', '')  # Use get() method with a default value
+        membership_id = entry['player']['destinyUserInfo']['membershipId']
         weapon_kills_super = entry['extended']['values']['weaponKillsSuper']['basic']['value']
         kills = entry['values']['kills']['basic']['value']
         deaths = entry['values']['deaths']['basic']['value']
